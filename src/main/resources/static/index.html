@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spring Boot Chat App</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #username-page {
+            text-align: center;
+            background: white;
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+        }
+
+        #username-page h1 {
+            color: #667eea;
+            margin-bottom: 20px;
+        }
+
+        #username-page input {
+            width: 300px;
+            padding: 12px;
+            border: 2px solid #667eea;
+            border-radius: 5px;
+            font-size: 16px;
+            margin-bottom: 20px;
+        }
+
+        #username-page button {
+            padding: 12px 30px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        #username-page button:hover {
+            background: #5568d3;
+        }
+
+        #chat-page {
+            display: none;
+            width: 100%;
+            max-width: 800px;
+            background: white;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+        }
+
+        #chat-header {
+            background: #667eea;
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+
+        #messageArea {
+            height: 400px;
+            overflow-y: auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+
+        .message {
+            margin-bottom: 15px;
+            padding: 10px 15px;
+            border-radius: 8px;
+            max-width: 70%;
+            word-wrap: break-word;
+        }
+
+        .event-message {
+            background: #e3f2fd;
+            color: #1976d2;
+            text-align: center;
+            max-width: 100%;
+            font-style: italic;
+        }
+
+        .chat-message {
+            background: white;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        .message-sender {
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 5px;
+        }
+
+        .message-time {
+            font-size: 11px;
+            color: #999;
+            margin-left: 10px;
+        }
+
+        #messageForm {
+            display: flex;
+            padding: 20px;
+            background: white;
+            border-top: 1px solid #ddd;
+        }
+
+        #message {
+            flex: 1;
+            padding: 12px;
+            border: 2px solid #667eea;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+
+        #messageForm button {
+            margin-left: 10px;
+            padding: 12px 25px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        #messageForm button:hover {
+            background: #5568d3;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <!-- Username Page -->
+    <div id="username-page">
+        <h1>💬 Spring Boot Chat</h1>
+        <p style="margin-bottom: 20px; color: #666;">Enter your name to join the chat</p>
+        <form id="usernameForm">
+            <input type="text" id="name" placeholder="Enter your name" autocomplete="off" required>
+            <button type="submit">Join Chat</button>
+        </form>
+    </div>
+
+    <!-- Chat Page -->
+    <div id="chat-page">
+        <div id="chat-header">
+            <h2>Spring Boot WebSocket Chat</h2>
+            <p id="connected-user"></p>
+        </div>
+        <div id="messageArea"></div>
+        <form id="messageForm">
+            <input type="text" id="message" placeholder="Type your message..." autocomplete="off" required>
+            <button type="submit">Send</button>
+        </form>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.6.1/sockjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+    <script>
+        let stompClient = null;
+        let username = null;
+
+        const usernamePage = document.getElementById('username-page');
+        const chatPage = document.getElementById('chat-page');
+        const usernameForm = document.getElementById('usernameForm');
+        const messageForm = document.getElementById('messageForm');
+        const messageInput = document.getElementById('message');
+        const messageArea = document.getElementById('messageArea');
+        const connectedUser = document.getElementById('connected-user');
+
+        usernameForm.addEventListener('submit', connect, true);
+        messageForm.addEventListener('submit', sendMessage, true);
+
+        function connect(event) {
+            event.preventDefault();
+            username = document.getElementById('name').value.trim();
+
+            if (username) {
+                usernamePage.classList.add('hidden');
+                chatPage.classList.remove('hidden');
+
+                const socket = new SockJS('/ws');
+                stompClient = Stomp.over(socket);
+
+                stompClient.connect({}, onConnected, onError);
+            }
+        }
+
+        function onConnected() {
+            stompClient.subscribe('/topic/public', onMessageReceived);
+
+            stompClient.send("/app/chat.addUser",
+                {},
+                JSON.stringify({sender: username, type: 'JOIN'})
+            );
+
+            connectedUser.textContent = `Connected as ${username}`;
+        }
+
+        function onError(error) {
+            console.log('Could not connect to WebSocket server. Please refresh this page to try again!');
+        }
+
+        function sendMessage(event) {
+            event.preventDefault();
+            const messageContent = messageInput.value.trim();
+
+            if (messageContent && stompClient) {
+                const chatMessage = {
+                    sender: username,
+                    content: messageContent,
+                    type: 'CHAT'
+                };
+
+                stompClient.send("/app/chat.sendMessage", {}, JSON.stringify(chatMessage));
+                messageInput.value = '';
+            }
+        }
+
+        function onMessageReceived(payload) {
+            const message = JSON.parse(payload.body);
+
+            const messageElement = document.createElement('div');
+            messageElement.classList.add('message');
+
+            if (message.type === 'JOIN') {
+                messageElement.classList.add('event-message');
+                messageElement.textContent = `${message.sender} joined the chat`;
+            } else if (message.type === 'LEAVE') {
+                messageElement.classList.add('event-message');
+                messageElement.textContent = `${message.sender} left the chat`;
+            } else {
+                messageElement.classList.add('chat-message');
+                
+                const senderElement = document.createElement('div');
+                senderElement.classList.add('message-sender');
+                senderElement.textContent = message.sender;
+                
+                const timeSpan = document.createElement('span');
+                timeSpan.classList.add('message-time');
+                timeSpan.textContent = message.timestamp;
+                senderElement.appendChild(timeSpan);
+                
+                const contentElement = document.createElement('div');
+                contentElement.textContent = message.content;
+                
+                messageElement.appendChild(senderElement);
+                messageElement.appendChild(contentElement);
+            }
+
+            messageArea.appendChild(messageElement);
+            messageArea.scrollTop = messageArea.scrollHeight;
+        }
+    </script>
+</body>
+</html>
